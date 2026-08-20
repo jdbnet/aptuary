@@ -34,7 +34,26 @@ curl -f -X POST \
   "https://apt.example.com/api/v1/upload?distribution=stable&component=main"
 ```
 
-### GitHub Actions
+### GitHub Actions (this repo)
+
+Releases use [GoReleaser](.goreleaser.yaml) for cross-compiles, `.deb` packaging, and GitHub Releases. The workflow uploads to Aptuary with inline `curl` (no repo scripts).
+
+Repository secrets:
+
+| Secret | Example |
+|--------|---------|
+| `APTUARY_URL` | `https://apt.example.com` |
+| `APTUARY_API_KEY` | `apk_...` (scope: `packages:write`) |
+
+Optional workflow env vars: `APTUARY_DISTRIBUTION`, `APTUARY_COMPONENT` (default `stable` / `main`).
+
+Local snapshot build:
+
+```bash
+goreleaser build --snapshot --clean
+```
+
+### GitHub Actions (other projects)
 
 ```yaml
 - name: Upload to Aptuary
@@ -97,6 +116,7 @@ sudo systemctl enable --now aptuary
 ```bash
 cd ui && npm install && npm run dev   # Vite on :3000, proxies API to :8080
 go run ./cmd/aptuary ./docs/config.example.yaml
+goreleaser build --snapshot --clean  # local release artifacts in dist/
 ```
 
 ## Requirements
@@ -104,3 +124,4 @@ go run ./cmd/aptuary ./docs/config.example.yaml
 - Go 1.23+
 - Node 20+ (UI build)
 - `gpg` on PATH for signing
+- [GoReleaser](https://goreleaser.com/) for release builds (CI and local snapshots)

@@ -1,0 +1,63 @@
+version: 2
+
+project_name: aptuary
+
+before:
+  hooks:
+    - go mod tidy
+    - bash -c 'cd ui && (npm ci --no-audit --no-fund 2>/dev/null || npm install --no-audit --no-fund) && npm run build'
+
+builds:
+  - id: aptuary
+    main: ./cmd/aptuary
+    binary: aptuary
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.Version={{.Version}}
+
+archives:
+  - id: binaries
+    ids:
+      - aptuary
+    format: binary
+    name_template: "aptuary-{{ .Arch }}"
+
+nfpms:
+  - id: aptuary
+    package_name: aptuary
+    ids:
+      - aptuary
+    vendor: JDB Net
+    homepage: https://github.com/jdbnet/aptuary
+    maintainer: Jamie <jamie@jdbnet.co.uk>
+    description: |-
+      APT repository server with signed metadata and web dashboard.
+      Aptuary serves GPG-signed Debian repositories with a Vue admin UI,
+      dual HTTP listeners, and API-key CI uploads.
+    formats:
+      - deb
+    bindir: /usr/local/bin
+    file_name_template: "aptuary_{{ .Version }}_{{ .Arch }}"
+    contents:
+      - src: docs/aptuary.service
+        dst: /lib/systemd/system/aptuary.service
+      - src: docs/config.example.yaml
+        dst: /etc/aptuary/config.yaml
+        type: config|noreplace
+    deb:
+      compression: gzip
+
+changelog:
+  disable: true
+
+release:
+  github:
+    owner: jdbnet
+    name: aptuary

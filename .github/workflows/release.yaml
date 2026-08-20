@@ -2,73 +2,71 @@ name: Release
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
 
 permissions:
   contents: write
 
+env:
+  APTUARY_DISTRIBUTION: stable
+  APTUARY_COMPONENT: main
+
 jobs:
-  release:
+  version:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.semantic.outputs.version }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Calculate Version
-        id: semantic
+      - id: semantic
         uses: go-semantic-release/action@v1
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Checkout release tag
-        if: steps.semantic.outputs.version != ''
-        uses: actions/checkout@v4
+  publish:
+    needs: version
+    if: needs.version.outputs.version != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
         with:
-          ref: v${{ steps.semantic.outputs.version }}
+          ref: v${{ needs.version.outputs.version }}
           fetch-depth: 0
 
-      - name: Set up Go
-        if: steps.semantic.outputs.version != ''
-        uses: actions/setup-go@v5
+      - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
 
-      - name: Set up Node
-        if: steps.semantic.outputs.version != ''
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '24'
 
-      - name: Build UI
-        if: steps.semantic.outputs.version != ''
-        working-directory: ui
-        run: |
-          npm ci --no-audit --no-fund 2>/devnull || npm install --no-audit --no-fund
-          npm run build
-
-      - name: Build binaries
-        if: steps.semantic.outputs.version != ''
-        run: |
-          go mod tidy
-          VERSION="${{ steps.semantic.outputs.version }}"
-          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
-            -ldflags="-s -w -X main.Version=${VERSION}" \
-            -o aptuary-amd64 ./cmd/aptuary
-          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build \
-            -ldflags="-s -w -X main.Version=${VERSION}" \
-            -o aptuary-arm64 ./cmd/aptuary
-
-      - name: Upload release assets
-        if: steps.semantic.outputs.version != ''
-        uses: softprops/action-gh-release@v2
+      - uses: goreleaser/goreleaser-action@v6
         with:
-          tag_name: v${{ steps.semantic.outputs.version }}
-          name: v${{ steps.semantic.outputs.version }}
-          files: |
-            aptuary-amd64
-            aptuary-arm64
+          version: '~> v2'
+          args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload to Aptuary
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          APTUARY_URL: ${{ secrets.APTUARY_URL }}
+          APTUARY_API_KEY: ${{ secrets.APTUARY_API_KEY }}
+        run: |
+          if [ -z "$APTUARY_URL" ] || [ -z "$APTUARY_API_KEY" ]; then
+            echo "Skipping Aptuary upload (APTUARY_URL and APTUARY_API_KEY secrets not set)"
+            exit 0
+          fi
+          BASE="${APTUARY_URL%/}"
+          QUERY="distribution=${APTUARY_DISTRIBUTION}&component=${APTUARY_COMPONENT}"
+          for deb in dist/aptuary_${VERSION}_*.deb; do
+            echo "Uploading ${deb}"
+            curl -fsSL -X POST \
+              -H "Authorization: Bearer ${APTUARY_API_KEY}" \
+              -F "file=@${deb}" \
+              "${BASE}/api/v1/upload?${QUERY}"
+          done

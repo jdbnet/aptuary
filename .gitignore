@@ -1,4 +1,5 @@
 /aptuary
+dist/
 ui/dist/
 ui/node_modules/
 *.db
