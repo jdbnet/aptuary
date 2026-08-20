@@ -23,8 +23,11 @@ func WriteRelease(repoDir, distro string, components, architectures []string) er
 	for _, comp := range components {
 		for _, arch := range architectures {
 			for _, name := range []string{"Packages", "Packages.gz"} {
-				rel := filepath.Join("dists", distro, comp, "binary-"+arch, name)
-				full := filepath.Join(repoDir, rel)
+				// Paths in Release must be relative to dists/<distro>/, not the repo root.
+				// APT resolves them as dists/<suite>/<path> — including dists/<suite>/ here
+				// would produce dists/stable/dists/stable/... and 404.
+				rel := filepath.Join(comp, "binary-"+arch, name)
+				full := filepath.Join(distsDir, rel)
 				info, err := os.Stat(full)
 				if err != nil {
 					if os.IsNotExist(err) {
@@ -38,7 +41,7 @@ func WriteRelease(repoDir, distro string, components, architectures []string) er
 				}
 				sum := sha256.Sum256(data)
 				indexes = append(indexes, IndexFile{
-					Path:   rel,
+					Path:   filepath.ToSlash(rel),
 					Size:   info.Size(),
 					SHA256: hex.EncodeToString(sum[:]),
 				})
