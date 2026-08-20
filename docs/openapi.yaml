@@ -1,0 +1,36 @@
+openapi: 3.0.3
+info:
+  title: Aptuary API
+  version: 1.0.0
+  description: Admin and public upload API for Aptuary APT repository server
+
+paths:
+  /api/v1/health:
+    get:
+      summary: Health check
+  /api/v1/upload:
+    post:
+      summary: Upload a .deb package (public port, API key required)
+      parameters:
+        - name: distribution
+          in: query
+          required: true
+          schema: { type: string }
+        - name: component
+          in: query
+          required: true
+          schema: { type: string }
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+  /api/v1/packages:
+    get:
+      summary: List packages (admin)
+    delete:
+      summary: Delete package by id (admin)

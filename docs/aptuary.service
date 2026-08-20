@@ -1,0 +1,20 @@
+[Unit]
+Description=Aptuary APT repository server
+After=network.target
+
+[Service]
+Type=simple
+User=aptuary
+Group=aptuary
+ExecStart=/usr/local/bin/aptuary /etc/aptuary/config.yaml
+Restart=on-failure
+RestartSec=5
+AmbientCapabilities=
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/aptuary
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

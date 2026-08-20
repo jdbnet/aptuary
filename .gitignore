@@ -1,0 +1,8 @@
+/aptuary
+ui/dist/
+ui/node_modules/
+*.db
+data/
+.DS_Store
+config.yaml
+data/

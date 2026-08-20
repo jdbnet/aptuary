@@ -1,0 +1,25 @@
+# Example sources.list entries for Aptuary
+#
+# Quick install (recommended):
+#   curl -fsSL https://apt.example.com/install/stable.sh | sudo bash
+#   curl -fsSL https://apt.example.com/install/testing.sh | sudo bash
+#
+# Or download the key manually:
+#   curl -fsSL https://apt.example.com/aptuary.gpg | gpg --dearmor | sudo tee /usr/share/keyrings/aptuary.gpg
+#
+# Then add /etc/apt/sources.list.d/aptuary-stable.sources (deb822, Debian 12+):
+#
+# Types: deb
+# URIs: https://apt.example.com
+# Suites: stable
+# Components: main
+# Signed-By: /usr/share/keyrings/aptuary.gpg
+#
+# Legacy one-line format (still works on Bookworm/Trixie until ~2029):
+
+deb [signed-by=/usr/share/keyrings/aptuary.gpg] https://apt.example.com stable main
+deb [signed-by=/usr/share/keyrings/aptuary.gpg] https://apt.example.com testing main
+
+# 3. Update and install:
+#    sudo apt update
+#    sudo apt install your-package
