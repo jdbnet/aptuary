@@ -51,6 +51,9 @@ func (s *Server) fileServer(prefix string) http.Handler {
 			return
 		}
 		full := filepath.Join(root, clean)
+		// Repo metadata and pool objects must not be cached by intermediaries across
+		// publishes; stale Packages.gz with fresh InRelease causes hash sum mismatches.
+		w.Header().Set("Cache-Control", "no-cache, must-revalidate")
 		http.ServeFile(w, r, full)
 	})
 }

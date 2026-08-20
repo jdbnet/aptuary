@@ -69,8 +69,11 @@ func WriteRelease(repoDir, distro string, components, architectures []string) er
 	b.WriteString(strings.Join(components, " "))
 	b.WriteString("\n")
 	b.WriteString("Description: Aptuary APT repository\n")
+	// APT expects a single SHA256 field with one checksum triplet per line (deb822-style),
+	// not repeated "SHA256:" headers. APT 3.x keeps only the last duplicate field otherwise.
+	b.WriteString("SHA256:\n")
 	for _, idx := range indexes {
-		b.WriteString(fmt.Sprintf("SHA256: %s %d %s\n", idx.SHA256, idx.Size, idx.Path))
+		b.WriteString(fmt.Sprintf(" %s %d %s\n", idx.SHA256, idx.Size, idx.Path))
 	}
 
 	releasePath := filepath.Join(distsDir, "Release")

@@ -35,7 +35,13 @@ func TestWriteReleasePaths(t *testing.T) {
 	if strings.Contains(text, "dists/stable/") {
 		t.Fatalf("Release should use distro-relative paths, got:\n%s", text)
 	}
-	if !strings.Contains(text, "SHA256:") || !strings.Contains(text, "main/binary-amd64/Packages") {
+	if !strings.Contains(text, "main/binary-amd64/Packages") {
 		t.Fatalf("expected main/binary-amd64/Packages in Release, got:\n%s", text)
+	}
+	if strings.Count(text, "SHA256:") != 1 {
+		t.Fatalf("Release should have one SHA256 section header, got:\n%s", text)
+	}
+	if !strings.Contains(text, "SHA256:\n ") {
+		t.Fatalf("Release checksums should be listed under a single SHA256 section, got:\n%s", text)
 	}
 }
