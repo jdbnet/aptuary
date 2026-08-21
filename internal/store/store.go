@@ -73,6 +73,10 @@ func (db *DB) migrate() error {
 			uploaded_at TEXT NOT NULL
 		)`,
 		`CREATE INDEX IF NOT EXISTS packages_dist ON packages(distribution, component, architecture)`,
+		`DELETE FROM packages WHERE id NOT IN (
+			SELECT MAX(id) FROM packages GROUP BY name, version, architecture, distribution, component
+		)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS packages_identity ON packages(name, version, architecture, distribution, component)`,
 		`CREATE TABLE IF NOT EXISTS audit (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			at TEXT NOT NULL,

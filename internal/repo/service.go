@@ -88,21 +88,36 @@ func (s *Service) Upload(distro, component string, data []byte) (*Package, error
 		return nil, fmt.Errorf("architecture %q not allowed for distribution %q", ctrl.Architecture, distro)
 	}
 
-	filename := PoolFilename(ctrl.Package, ctrl.Version, ctrl.Architecture)
-	poolPath, err := PlaceInPool(s.repoDir, component, ctrl.Package, filename, data)
-	if err != nil {
-		return nil, err
-	}
-
 	sha := SHA256Hex(data)
 	now := time.Now().UTC().Format(time.RFC3339)
 	size := int64(len(data))
 
-	// Remove duplicate same name/version/arch in same distro/component
 	existing, _ := s.GetByIdentity(ctrl.Package, ctrl.Version, ctrl.Architecture, distro, component)
 	if existing != nil {
-		_ = RemoveFromPool(s.repoDir, existing.PoolPath)
-		_, _ = s.db.Exec(`DELETE FROM packages WHERE id = ?`, existing.ID)
+		if existing.SHA256 == sha {
+			pruned, err := s.pruneOlderVersions(existing)
+			if err != nil {
+				return nil, err
+			}
+			if pruned > 0 {
+				if err := s.finalizeUpload(existing, distro); err != nil {
+					return nil, err
+				}
+			}
+			return existing, nil
+		}
+		if err := RemoveFromPool(s.repoDir, existing.PoolPath); err != nil {
+			return nil, err
+		}
+		if _, err := s.db.Exec(`DELETE FROM packages WHERE id = ?`, existing.ID); err != nil {
+			return nil, err
+		}
+	}
+
+	filename := PoolFilename(ctrl.Package, ctrl.Version, ctrl.Architecture)
+	poolPath, err := PlaceInPool(s.repoDir, component, ctrl.Package, filename, data)
+	if err != nil {
+		return nil, err
 	}
 
 	res, err := s.db.Exec(
@@ -120,7 +135,7 @@ func (s *Service) Upload(distro, component string, data []byte) (*Package, error
 		SHA256: sha, Size: size, UploadedAt: now,
 	}
 
-	if err := s.PublishDistribution(distro); err != nil {
+	if err := s.finalizeUpload(pkg, distro); err != nil {
 		return nil, err
 	}
 	return pkg, nil
@@ -139,6 +154,9 @@ func (s *Service) Delete(id int64) (*Package, error) {
 		return nil, err
 	}
 	if err := s.PublishDistribution(pkg.Distribution); err != nil {
+		return nil, err
+	}
+	if err := s.writePublishFingerprintFromDB(); err != nil {
 		return nil, err
 	}
 	return pkg, nil
@@ -161,6 +179,10 @@ func (s *Service) PublishDistribution(distro string) error {
 	lock.Lock()
 	defer lock.Unlock()
 
+	if err := s.pruneAllOlderVersions(); err != nil {
+		return err
+	}
+
 	for _, comp := range cfg.Components {
 		for _, arch := range cfg.Architectures {
 			entries, err := s.packageEntries(distro, comp, arch)
@@ -181,35 +203,39 @@ func (s *Service) PublishDistribution(distro string) error {
 func (s *Service) packageEntries(distro, component, arch string) ([]PackageEntry, error) {
 	rows, err := s.db.Query(
 		`SELECT name, version, architecture, distribution, component, filename, pool_path, sha256, size
-		 FROM packages WHERE distribution = ? AND component = ? AND architecture = ? ORDER BY name, version`,
+		 FROM packages WHERE distribution = ? AND component = ? AND architecture = ?`,
 		distro, component, arch,
 	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []PackageEntry
+	var packages []Package
 	for rows.Next() {
 		var p Package
 		if err := rows.Scan(&p.Name, &p.Version, &p.Architecture, &p.Distribution, &p.Component, &p.Filename, &p.PoolPath, &p.SHA256, &p.Size); err != nil {
 			return nil, err
 		}
-		ctrl := &Control{
-			Package:      p.Name,
-			Version:      p.Version,
-			Architecture: p.Architecture,
-		}
-		out = append(out, PackageEntry{
-			Control:   ctrl,
-			PoolPath:  p.PoolPath,
-			Filename:  p.Filename,
-			Size:      p.Size,
-			SHA256:    p.SHA256,
-			Distro:    distro,
-			Component: component,
-		})
+		packages = append(packages, p)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	latest, err := latestPackages(packages)
+	if err != nil {
+		return nil, err
+	}
+
+	var out []PackageEntry
+	for _, p := range latest {
+		entry, err := s.packageEntryFromPool(p, distro, component)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, entry)
+	}
+	return out, nil
 }
 
 func (s *Service) List() ([]Package, error) {
@@ -357,5 +383,13 @@ func (s *Service) PublishAll() error {
 			return err
 		}
 	}
-	return nil
+	return s.writePublishFingerprintFromDB()
+}
+
+func (s *Service) writePublishFingerprintFromDB() error {
+	fingerprint, err := s.packagesFingerprint()
+	if err != nil {
+		return err
+	}
+	return s.writePublishFingerprint(fingerprint)
 }

@@ -109,7 +109,7 @@ func main() {
 		return out
 	})
 
-	if err := repoSvc.PublishAll(); err != nil {
+	if err := repoSvc.PublishIfStale(); err != nil {
 		slog.Warn("initial publish", "err", err)
 	}
 
