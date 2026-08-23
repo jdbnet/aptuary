@@ -14,6 +14,47 @@ import (
 	"github.com/jdbnet/aptuary/internal/store"
 )
 
+func TestUploadKeepsNewerSemanticVersion(t *testing.T) {
+	svc := testService(t)
+
+	deb9 := buildTestDeb(t, "myapp", "1.9.0", "amd64", []byte("binary v9"))
+	deb10 := buildTestDeb(t, "myapp", "1.10.0", "amd64", []byte("binary v10"))
+	if _, err := svc.Upload("stable", "main", deb9); err != nil {
+		t.Fatalf("upload 1.9.0: %v", err)
+	}
+	if _, err := svc.Upload("stable", "main", deb10); err != nil {
+		t.Fatalf("upload 1.10.0: %v", err)
+	}
+
+	packagesPath := filepath.Join(svc.RepoDir(), "dists", "stable", "main", "binary-amd64", "Packages")
+	content, err := os.ReadFile(packagesPath)
+	if err != nil {
+		t.Fatalf("read Packages: %v", err)
+	}
+	text := string(content)
+	if !strings.Contains(text, "Version: 1.10.0") {
+		t.Fatalf("expected 1.10.0 in index, got:\n%s", text)
+	}
+	if strings.Contains(text, "Version: 1.9.0") {
+		t.Fatalf("old version should be pruned from index:\n%s", text)
+	}
+}
+
+func TestUploadNfpmDeb(t *testing.T) {
+	data, err := os.ReadFile("/tmp/testapp.deb")
+	if err != nil {
+		t.Skip("nfpm test deb not found; run nfpm package to create /tmp/testapp.deb")
+	}
+	svc := testService(t)
+	pkg, err := svc.Upload("stable", "main", data)
+	if err != nil {
+		t.Fatalf("upload nfpm deb: %v", err)
+	}
+	if pkg.Name != "testapp" || pkg.Version != "1.0.0" {
+		t.Fatalf("unexpected package: %+v", pkg)
+	}
+}
+
 func TestUploadReplacesSameVersionDifferentContent(t *testing.T) {
 	svc := testService(t)
 
