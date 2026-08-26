@@ -11,7 +11,7 @@ import (
 )
 
 // Bump when repository metadata format changes and existing installs need a republish.
-const publishFormatVersion = 3
+const publishFormatVersion = 4
 
 func (s *Service) PublishIfStale() error {
 	fingerprint, err := s.packagesFingerprint()

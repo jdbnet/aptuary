@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -165,6 +166,118 @@ func TestPublishAllIsStableForSingleUpload(t *testing.T) {
 	}
 }
 
+func TestUploadMultilineDescriptionKeepsDownloadFields(t *testing.T) {
+	svc := testService(t)
+
+	control := "Package: icetray\nVersion: 1.3.8\nArchitecture: amd64\nMaintainer: Test <test@test>\nHomepage: https://example.com/icetray\nDescription: IceTray is a lightweight system tray.\n Longer explanation of the application.\n .\n Second paragraph after a blank line.\n"
+	deb := buildTestDebWithControl(t, control, []byte("binary v138"))
+	if _, err := svc.Upload("stable", "main", deb); err != nil {
+		t.Fatalf("upload: %v", err)
+	}
+
+	packagesPath := filepath.Join(svc.RepoDir(), "dists", "stable", "main", "binary-amd64", "Packages")
+	content, err := os.ReadFile(packagesPath)
+	if err != nil {
+		t.Fatalf("read Packages: %v", err)
+	}
+	if err := assertPackagesMatchesPool(t, svc.RepoDir(), content); err != nil {
+		t.Fatalf("packages vs pool: %v", err)
+	}
+
+	text := string(content)
+	stanzas := strings.Split(strings.TrimSpace(text), "\n\n")
+	if len(stanzas) != 1 {
+		t.Fatalf("expected one Packages stanza, got %d:\n%s", len(stanzas), text)
+	}
+	stanza := stanzas[0] + "\n"
+	if !regexp.MustCompile(`(?m)^Package: icetray$`).MatchString(stanza) {
+		t.Fatalf("missing Package field:\n%s", text)
+	}
+	if !regexp.MustCompile(`(?m)^Filename: pool/main/i/icetray/icetray_1.3.8_amd64.deb$`).MatchString(stanza) {
+		t.Fatalf("Filename must stay in the package stanza:\n%s", text)
+	}
+	if !regexp.MustCompile(`(?m)^SHA256: [0-9a-f]+$`).MatchString(stanza) {
+		t.Fatalf("SHA256 must stay in the package stanza:\n%s", text)
+	}
+	if !regexp.MustCompile(`(?m)^Homepage: https://example.com/icetray$`).MatchString(stanza) {
+		t.Fatalf("expected extra control fields from the .deb:\n%s", text)
+	}
+}
+
+func TestAptUpgradeFindsSourceForInstalledPackage(t *testing.T) {
+	if _, err := exec.LookPath("apt-get"); err != nil {
+		t.Skip("apt-get not available")
+	}
+
+	svc := testService(t)
+	control := "Package: icetray\nVersion: 1.3.8\nArchitecture: amd64\nMaintainer: Test <test@test>\nDescription: IceTray is a lightweight system tray.\n Longer explanation of the application.\n .\n Second paragraph after a blank line.\n"
+	deb := buildTestDebWithControl(t, control, []byte("binary v138"))
+	if _, err := svc.Upload("stable", "main", deb); err != nil {
+		t.Fatalf("upload: %v", err)
+	}
+
+	root := t.TempDir()
+	etc := filepath.Join(root, "etc", "apt")
+	state := filepath.Join(root, "var", "lib", "apt")
+	cache := filepath.Join(root, "var", "cache", "apt")
+	dpkg := filepath.Join(root, "var", "lib", "dpkg")
+	for _, dir := range []string{
+		filepath.Join(etc, "apt.conf.d"),
+		filepath.Join(etc, "preferences.d"),
+		filepath.Join(state, "lists", "partial"),
+		filepath.Join(cache, "archives", "partial"),
+		dpkg,
+	} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	repoDir := svc.RepoDir()
+	if !strings.HasSuffix(repoDir, string(filepath.Separator)) {
+		repoDir += string(filepath.Separator)
+	}
+	sources := fmt.Sprintf("deb [trusted=yes arch=amd64] file:%s stable main\n", repoDir)
+	if err := os.WriteFile(filepath.Join(etc, "sources.list"), []byte(sources), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	status := "Package: icetray\nStatus: install ok installed\nArchitecture: amd64\nVersion: 1.3.7\nMaintainer: Test <test@test>\nDescription: old version\n\n"
+	if err := os.WriteFile(filepath.Join(dpkg, "status"), []byte(status), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	aptOpts := []string{
+		"-o", "Debug::NoLocking=1",
+		"-o", "APT::Get::List-Cleanup=0",
+		"-o", "APT::Architectures=amd64",
+		"-o", "Dir=" + root,
+		"-o", "Dir::State=" + state,
+		"-o", "Dir::Cache=" + cache,
+		"-o", "Dir::Etc=" + etc,
+		"-o", "Dir::State::status=" + filepath.Join(dpkg, "status"),
+		"-o", "Dir::Etc::sourcelist=" + filepath.Join(etc, "sources.list"),
+		"-o", "Dir::Etc::sourceparts=/dev/null",
+	}
+
+	update := exec.Command("apt-get", append(aptOpts, "update")...)
+	if out, err := update.CombinedOutput(); err != nil {
+		t.Fatalf("apt-get update: %v\n%s", err, out)
+	}
+
+	upgrade := exec.Command("apt-get", append(aptOpts, "-y", "--print-uris", "upgrade")...)
+	out, err := upgrade.CombinedOutput()
+	if err != nil {
+		t.Fatalf("apt-get upgrade: %v\n%s", err, out)
+	}
+	text := string(out)
+	if strings.Contains(text, "Can't find a source to download") {
+		t.Fatalf("apt could not download the published version:\n%s", text)
+	}
+	if !strings.Contains(text, "icetray_1.3.8_amd64.deb") {
+		t.Fatalf("expected apt to select icetray 1.3.8, got:\n%s", text)
+	}
+}
+
 func TestPackagesIndexHasSingleStanzaPerPackage(t *testing.T) {
 	svc := testService(t)
 
@@ -244,6 +357,17 @@ func buildTestDeb(t *testing.T, pkg, version, arch string, binary []byte) []byte
 		"Package: %s\nVersion: %s\nArchitecture: %s\nMaintainer: Test <test@test>\nDescription: test package\n",
 		pkg, version, arch,
 	)
+	return buildTestDebWithControl(t, control, binary)
+}
+
+func buildTestDebWithControl(t *testing.T, control string, binary []byte) []byte {
+	t.Helper()
+	pkgRe := regexp.MustCompile(`(?m)^Package: (.+)$`)
+	m := pkgRe.FindStringSubmatch(control)
+	if len(m) != 2 {
+		t.Fatalf("control is missing Package: %s", control)
+	}
+	pkg := m[1]
 
 	var ctar bytes.Buffer
 	gw := gzip.NewWriter(&ctar)

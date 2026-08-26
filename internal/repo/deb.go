@@ -13,14 +13,17 @@ import (
 
 // Control holds parsed Debian control file fields.
 type Control struct {
-	Package      string
-	Version      string
-	Architecture string
-	Maintainer   string
-	Description  string
-	Depends      string
+	Package       string
+	Version       string
+	Architecture  string
+	Maintainer    string
+	Description   string
+	Depends       string
 	InstalledSize string
-	Fields       map[string]string
+	Fields        map[string]string
+	// Raw is the original control file text (normalized to \n). Used when
+	// rewriting Packages indexes so multiline Description/Depends stay valid deb822.
+	Raw string
 }
 
 func ParseDeb(data []byte) (*Control, error) {
@@ -97,8 +100,10 @@ func extractControlFromTar(data []byte, name string) ([]byte, error) {
 }
 
 func parseControl(data []byte) (*Control, error) {
-	fields := parseDeb822(string(data))
-	c := &Control{Fields: fields}
+	raw := strings.ReplaceAll(string(data), "\r\n", "\n")
+	raw = strings.ReplaceAll(raw, "\r", "\n")
+	fields := parseDeb822(raw)
+	c := &Control{Fields: fields, Raw: raw}
 	c.Package = fields["Package"]
 	c.Version = fields["Version"]
 	c.Architecture = fields["Architecture"]
