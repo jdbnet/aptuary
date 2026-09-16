@@ -1,0 +1,19 @@
+services:
+  aptuary:
+    image: ghcr.io/jdbnet/aptuary:latest
+    ports:
+      - "8080:8080"
+      - "9090:9090"
+    environment:
+      APTUARY_DATA_DIR: /var/lib/aptuary
+      APTUARY_ADMIN_LISTEN: 0.0.0.0:8080
+      APTUARY_PUBLIC_LISTEN: 0.0.0.0:9090
+      APTUARY_PUBLIC_URL: ${APTUARY_PUBLIC_URL:-http://localhost:9090}
+      APTUARY_ADMIN_USER: ${APTUARY_ADMIN_USER:-admin}
+      APTUARY_ADMIN_PASSWORD: ${APTUARY_ADMIN_PASSWORD:-changeme}
+    volumes:
+      - aptuary-data:/var/lib/aptuary
+    restart: unless-stopped
+
+volumes:
+  aptuary-data:

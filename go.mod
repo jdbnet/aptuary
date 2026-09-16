@@ -1,6 +1,6 @@
 module github.com/jdbnet/aptuary
 
-go 1.23
+go 1.27.1
 
 require (
 	golang.org/x/crypto v0.31.0

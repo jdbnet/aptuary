@@ -1,0 +1,10 @@
+.git
+.github
+data/
+dist/
+ui/node_modules/
+ui/dist/
+*.db
+.DS_Store
+config.yaml
+aptuary
